@@ -19,6 +19,8 @@
     <string name="wv_status_prefetch">Prefetch</string>
     <string name="wv_status_installed">Installed</string>
 
+    <string name="wv_expand_collapse">Expand or collapse</string>
+
     <string name="wv_vendor_unknown">Unknown</string>
     <string name="wv_vendor_android">Android</string>
     <string name="wv_vendor_google">Google</string>

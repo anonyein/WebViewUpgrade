@@ -130,15 +130,6 @@
                 tools:text="42%" />
         </LinearLayout>
 
-        <TextView
-            android:id="@+id/upgradeErrorTextView"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:textColor="@color/wv_error_text"
-            android:textSize="13sp"
-            tools:text="Error detail" />
-
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -174,5 +165,15 @@
                 android:layout_marginTop="8dp"
                 android:text="@string/wv_btn_restore" />
         </LinearLayout>
+
+        <TextView
+            android:id="@+id/upgradeErrorTextView"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:textColor="@color/wv_error_text"
+            android:textSize="13sp"
+            tools:text="Error detail" />
+
     </LinearLayout>
 </ScrollView>

@@ -4,7 +4,6 @@ import android.app.Activity;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.pm.PackageManager;
-import android.graphics.drawable.ColorDrawable;
 import android.graphics.Typeface;
 import android.os.Bundle;
 import android.text.SpannableStringBuilder;
@@ -15,10 +14,9 @@ import android.text.style.StyleSpan;
 import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
-import android.view.ViewGroup;
-import android.widget.ArrayAdapter;
 import android.widget.Button;
-import android.widget.ListView;
+import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -36,7 +34,9 @@ import com.norman.webviewup.lib.source.UpgradeSource;
 import com.norman.webviewup.lib.util.RestartUtil;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 public class MainActivity extends Activity implements UpgradeCallback {
 
@@ -58,6 +58,8 @@ public class MainActivity extends Activity implements UpgradeCallback {
 
     @Nullable
     DemoUpgradeChoice selectUpgradeChoice;
+
+    private AlertDialog currentKernelPickerDialog;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -190,72 +192,178 @@ public class MainActivity extends Activity implements UpgradeCallback {
             return;
         }
 
-        final List<DemoUpgradeChoice> list = new ArrayList<>(choices);
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         builder.setTitle(R.string.wv_dialog_title);
-        ArrayAdapter<DemoUpgradeChoice> adapter = new ArrayAdapter<DemoUpgradeChoice>(
-                this, 0, list) {
-            @NonNull
-            @Override
-            public View getView(int position, @Nullable View convertView, @NonNull ViewGroup parent) {
-                View row = convertView;
-                if (row == null) {
-                    row = LayoutInflater.from(getContext()).inflate(
-                            R.layout.dialog_item_webview_choice, parent, false);
+
+        View dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_kernel_picker, null);
+        LinearLayout container = dialogView.findViewById(R.id.kernelListContainer);
+
+        List<DemoUpgradeChoice> list = new ArrayList<>(choices);
+
+        DemoUpgradeChoice installedChrome = null;
+        Map<String, List<DemoUpgradeChoice>> vendorGroups = new LinkedHashMap<>();
+
+        for (DemoUpgradeChoice choice : list) {
+            if (choice.sourceKind == DemoUpgradeChoice.SourceKind.INSTALLED_PACKAGE) {
+                installedChrome = choice;
+            } else {
+                String vendorKey = extractVendorFromLine(choice.lineVendorArch);
+                if (!vendorGroups.containsKey(vendorKey)) {
+                    vendorGroups.put(vendorKey, new ArrayList<>());
                 }
-                DemoUpgradeChoice c = list.get(position);
-                TextView lineVendorArch = row.findViewById(R.id.wv_choice_line_vendor_arch);
-                TextView lineStatusVer = row.findViewById(R.id.wv_choice_line_status_version);
-                lineVendorArch.setText(c.lineVendorArch);
-                lineStatusVer.setText(buildStatusVersionLine(getContext(), c));
-                return row;
+                vendorGroups.get(vendorKey).add(choice);
             }
-        };
-        builder.setAdapter(adapter, new DialogInterface.OnClickListener() {
+        }
+
+        if (installedChrome != null) {
+            View chromeView = createInstalledChromeView(installedChrome, restartAfterSelection);
+            container.addView(chromeView);
+
+            View divider = new View(this);
+            divider.setLayoutParams(new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, 2));
+            divider.setBackgroundColor(ContextCompat.getColor(this, R.color.wv_divider));
+            divider.setPadding(0, 16, 0, 16);
+            container.addView(divider);
+        }
+
+        for (Map.Entry<String, List<DemoUpgradeChoice>> entry : vendorGroups.entrySet()) {
+            String vendorName = entry.getKey();
+            List<DemoUpgradeChoice> vendorChoices = entry.getValue();
+
+            View groupView = createVendorGroupView(vendorName, vendorChoices, restartAfterSelection);
+            container.addView(groupView);
+        }
+
+        builder.setView(dialogView);
+        currentKernelPickerDialog = builder.create();
+        currentKernelPickerDialog.show();
+    }
+
+    private String extractVendorFromLine(String lineVendorArch) {
+        if (lineVendorArch.contains(" · ")) {
+            return lineVendorArch.split(" · ")[0];
+        }
+        return lineVendorArch;
+    }
+
+    private View createInstalledChromeView(final DemoUpgradeChoice chrome,
+                                           final boolean restartAfterSelection) {
+        View view = LayoutInflater.from(this).inflate(R.layout.dialog_item_webview_choice, null);
+
+        TextView lineVendorArch = view.findViewById(R.id.wv_choice_line_vendor_arch);
+        TextView lineStatusVer = view.findViewById(R.id.wv_choice_line_status_version);
+
+        lineVendorArch.setText(chrome.lineVendorArch);
+        lineStatusVer.setText(buildStatusVersionLine(this, chrome));
+
+        view.setOnClickListener(new View.OnClickListener() {
             @Override
-            public void onClick(DialogInterface dialog, int which) {
-                dialog.dismiss();
-                if (WebViewUpgrade.isProcessing()) {
-                    Toast.makeText(getApplicationContext(), R.string.wv_upgrade_in_progress, Toast.LENGTH_LONG).show();
-                    return;
-                }
-                DemoUpgradeChoice choice = list.get(which);
-                UpgradeSource upgradeSource = choice.toUpgradeSource(MainActivity.this);
-                if (upgradeSource == null) {
-                    Toast.makeText(getApplicationContext(), R.string.wv_invalid_upgrade_source, Toast.LENGTH_SHORT).show();
-                    return;
-                }
-                if (restartAfterSelection) {
-                    selectUpgradeChoice = choice;
-                    PreferredWebViewStore.save(MainActivity.this, choice);
-                    RestartUtil.restart(getApplication(),
-                            new Runnable() {
-                                @Override
-                                public void run() {
-                                    DemoWebViewHolder.destroyHeldWebView();
-                                }
-                            });
-                    return;
-                }
-                if (WebViewUpgrade.isCompleted()) {
-                    Toast.makeText(getApplicationContext(), R.string.wv_upgrade_already_done, Toast.LENGTH_LONG).show();
-                    return;
-                }
-                selectUpgradeChoice = choice;
-                WebViewUpgrade.upgrade(upgradeSource);
-                updateUpgradeWebViewPackageInfo();
-                updateKernelPendingLine();
-                updateUpgradeWebViewStatus();
-                updateActionButtons();
+            public void onClick(View v) {
+                handleChoiceSelection(chrome, restartAfterSelection);
             }
         });
-        AlertDialog dialog = builder.create();
-        dialog.show();
-        ListView lv = dialog.getListView();
-        if (lv != null) {
-            lv.setDivider(new ColorDrawable(0x00000000));
-            lv.setDividerHeight(0);
+
+        view.setBackgroundResource(R.color.wv_chrome_highlight);
+
+        return view;
+    }
+
+    private View createVendorGroupView(final String vendorName,
+                                       final List<DemoUpgradeChoice> choices,
+                                       final boolean restartAfterSelection) {
+        View view = LayoutInflater.from(this).inflate(R.layout.item_vendor_group, null);
+
+        TextView vendorNameText = view.findViewById(R.id.vendorName);
+        TextView versionCountText = view.findViewById(R.id.versionCount);
+        ImageView expandIcon = view.findViewById(R.id.expandIcon);
+        final LinearLayout contentLayout = view.findViewById(R.id.vendorContent);
+        View header = view.findViewById(R.id.vendorHeader);
+
+        vendorNameText.setText(vendorName);
+        versionCountText.setText("(" + choices.size() + ")");
+
+        final boolean[] isExpanded = {false};
+
+        for (DemoUpgradeChoice choice : choices) {
+            View itemView = LayoutInflater.from(this)
+                    .inflate(R.layout.dialog_item_webview_choice, contentLayout, false);
+
+            TextView lineVendorArch = itemView.findViewById(R.id.wv_choice_line_vendor_arch);
+            TextView lineStatusVer = itemView.findViewById(R.id.wv_choice_line_status_version);
+
+            lineVendorArch.setText(choice.lineVendorArch);
+            lineStatusVer.setText(buildStatusVersionLine(this, choice));
+
+            itemView.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    handleChoiceSelection(choice, restartAfterSelection);
+                }
+            });
+
+            contentLayout.addView(itemView);
         }
+
+        header.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                isExpanded[0] = !isExpanded[0];
+
+                if (isExpanded[0]) {
+                    contentLayout.setVisibility(View.VISIBLE);
+                    expandIcon.setImageResource(android.R.drawable.arrow_up_float);
+                } else {
+                    contentLayout.setVisibility(View.GONE);
+                    expandIcon.setImageResource(android.R.drawable.arrow_down_float);
+                }
+            }
+        });
+
+        return view;
+    }
+
+    private void handleChoiceSelection(DemoUpgradeChoice choice, boolean restartAfterSelection) {
+        if (WebViewUpgrade.isProcessing()) {
+            Toast.makeText(getApplicationContext(), R.string.wv_upgrade_in_progress, Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        UpgradeSource upgradeSource = choice.toUpgradeSource(MainActivity.this);
+        if (upgradeSource == null) {
+            Toast.makeText(getApplicationContext(), R.string.wv_invalid_upgrade_source, Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        if (currentKernelPickerDialog != null && currentKernelPickerDialog.isShowing()) {
+            currentKernelPickerDialog.dismiss();
+            currentKernelPickerDialog = null;
+        }
+
+        if (restartAfterSelection) {
+            selectUpgradeChoice = choice;
+            PreferredWebViewStore.save(MainActivity.this, choice);
+            RestartUtil.restart(getApplication(),
+                    new Runnable() {
+                        @Override
+                        public void run() {
+                            DemoWebViewHolder.destroyHeldWebView();
+                        }
+                    });
+            return;
+        }
+
+        if (WebViewUpgrade.isCompleted()) {
+            Toast.makeText(getApplicationContext(), R.string.wv_upgrade_already_done, Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        selectUpgradeChoice = choice;
+        WebViewUpgrade.upgrade(upgradeSource);
+        updateUpgradeWebViewPackageInfo();
+        updateKernelPendingLine();
+        updateUpgradeWebViewStatus();
+        updateActionButtons();
     }
 
     @Override
